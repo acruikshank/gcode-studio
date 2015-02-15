@@ -1,0 +1,348 @@
+<html>
+<head>
+  <title>G-Code Studio</title>
+  <style>
+    html { height: 100%; }
+    body { height: 100%; margin: 0; background: #222; }
+    #side { position: absolute; width: 50%; height: 66%; top: 0; left:0; }
+    #top { position: absolute; width: 50%; height: 66%; top: 0; right:0; }
+    #editor {
+      position: absolute; width: 92%; height: 33%; bottom: 0; left:0;
+      background-color: #1f1f1f;
+      opacity: .8;
+      display: none;
+    }
+
+    #editor .ace_gutter {
+      background-color: #222;
+      background-image: none;
+      border-right: none;
+      border-left: none;
+      color: #444;
+    }
+    #editor .ace_scroller {
+      box-shadow: inset 0 0 5px rgba(0,0,0,.5);
+      -webkit-filter: opacity(.7) sepia(100%) hue-rotate(150deg) grayscale(20%);
+      -moz-filter: opacity(.7) sepia(100%) hue-rotate(150deg) grayscale(20%);
+    }
+    #editor .ace_indent-guide {
+      opacity:0;
+    }
+    #editor .ace_gutter-cell {
+      background-color: #222;
+    }
+    #editor .ace_cursor {
+      color: #fff;
+    }
+
+    #buttons {
+      position: absolute;
+      width: 8%;
+      height: 33%;
+      bottom:0;
+      right: 0;
+    }
+
+    a, button {
+      display: block;
+      padding: 0;
+      margin: 0 auto 10px;
+      font-family: Andale Mono, Helvetica;
+      text-align: center;
+      text-decoration: none;
+      font-size: 3vw;
+      background: none;
+      border: 1px solid #9cf;
+      border-radius: 3px;
+      color: #9cf;
+      height: 40px;
+      width: 80px;
+      font-size: 1vw;
+      line-height: 38px;
+      position: relative;
+      opacity: .4;
+      transition: all .5s ease;
+      -webkit-transition: all .5s ease;
+      -moz-transition: all .5s ease;
+    }
+
+    a:hover, button:hover {
+      cursor: pointer;
+      background-color: #056;
+      color: #fff;
+      opacity: 1;
+    }
+
+    .file {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+    }
+
+    .file:hover {
+      cursor: pointer;
+    }
+
+  </style>
+  <script src="http://cdnjs.cloudflare.com/ajax/libs/ace/1.1.3/ace.js"></script>
+</head>
+<body>
+<canvas id="side"></canvas>
+<canvas id="top"></canvas>
+<div id="editor">/* G-Code Studio
+   Enter transforms in this editor and press Command-Enter to execute them.
+   Each G0 or G1 command will be run through this code. Modifing any of the
+   variable will result in a modification to the corresponding G-Code. The
+   variables are:
+   X, Y, Z: The x, y and z destination of the print nozzle.
+   E: The extruder quantity at the end of this command.
+   G: 1 or 0 to indicate the type of movement.
+   context: set variables on this object to keep state between commands.
+ */
+</div>
+<div id="buttons">
+  <button>open
+    <input type="file" class="file" id="open"/>
+  </button>
+  <a href="" id="save">save</a>
+</div>
+</body>
+<script>
+
+/* TODO:
+- Generate gcode download link
+- HTML5 G-Code Upload into page
+- Dimensions on drawings
+- Select Top filter from front
+- Workers for side rendering
+- On screen error messaging
+- Loading animation
+- Emit gcode
+- Delete line
+*/
+
+var renderer = Renderer([]);
+initEditor(renderer);
+
+document.querySelector('#open').addEventListener('change', function(e) {
+  var file;
+  if (e.target.files && (file=e.target.files[0]) && file.name.match(/\.gcode$/)) {
+    var reader = new FileReader();
+    renderer.setName(file.name);
+    reader.onload = compose(renderer.load,parseGcode, function(e) { return e.target.result; });
+    reader.readAsText(file);
+  }
+}, false);
+
+document.querySelector('#save').addEventListener('click', handler(renderer.save), false);
+
+
+function parseGcode(code) {
+  var lines = code.split(/\n\r?/);
+  var point = {};
+  var points = [];
+  for (var i=0,line,m; (line = lines[i]) !== undefined; i++) {
+    m = line.match(/^G([01])\s+(.*?)(;.*)?$/);
+
+    if (m) {
+      point = {G:parseInt(m[1]), X:point.X, Y:point.Y, Z:point.Z, E:point.E, F:point.F, keys:''};
+      m[2].replace(/(\w)(-?\d+(\.\d+)?)/g, function(m,k,n) {
+        point.keys += k;
+        point[k] = parseFloat(n); return '';
+      });
+      points.push(point);
+    } else {
+      points.push(line + '\n');
+    }
+  }
+  start = new Date();
+  return points;
+}
+
+function Renderer(points) {
+  var rotateInterval;
+  var filename = '';
+  var transformed;
+  renderPoints(points);
+
+  function renderPoints(points) {
+    transformed = points;
+    var mins = comparePoints(points.slice(10,points.length-10),undefMin);
+    var maxes = comparePoints(points.slice(10,points.length-10),undefMax);
+    var centers = keyMap(function(k) { return lerp(mins[k],maxes[k],.5)}, ['X','Y','Z']);
+
+    var XMARGIN = 60;
+    var YMARGIN = 60;
+
+    var top = initCanvas('top',2);
+    var xRange = maxes.X - mins.X;
+    var yRange = maxes.Y - mins.Y;
+
+    var theta = 0;
+    var SCALE = aspectScale( xRange, yRange, top.width - 2*XMARGIN, top.height - 2*YMARGIN );
+
+    renderTop(top.ctx, points, SCALE, centers);
+
+    var side = initCanvas('side');
+    var zRange = maxes.Z - mins.Z;
+    var xyRange = Math.max(xRange, yRange);
+    var SCALE = aspectScale( xyRange, zRange, side.width - 2*XMARGIN, side.height - 2*YMARGIN );
+
+    clearInterval(rotateInterval);
+    rotateInterval = setInterval(function() {
+      side.ctx.clearRect(-side.width/2,-side.height/2,side.width,side.height);
+      renderSide(side.ctx, points, SCALE, centers, theta);
+      theta += Math.PI/60;
+    }, 200);
+  }
+
+  function load(newPoints) {
+    points = newPoints;
+    renderPoints(points);
+  }
+
+  function save() {
+    var gcode = transformed.map(function(line) {
+      if (typeof line == 'string')
+        return line;
+      return 'G'+line.G+' '+line.keys.split('').map(function(k) {return k+line[k].toFixed(5)}).join(' ')+'\n';
+    });
+
+    var a = document.createElement('a');
+    a.download = filename;
+    a.href = URL.createObjectURL(new Blob(gcode, {type:'text/plain'}));
+    a.click();
+  }
+
+  return {
+    points: function() { return points; },
+    render: renderPoints,
+    load: load,
+    save: save,
+    setName: function(name) { filename = name }
+  }
+}
+
+function initCanvas(id, scale) {
+  var canvas = document.getElementById(id);
+  var w = canvas.width = canvas.offsetWidth * (scale||1);
+  var h = canvas.height = canvas.offsetHeight * (scale||1);
+  var ctx = canvas.getContext('2d');
+  ctx.translate( w/2, h/2);
+
+  return {ctx:ctx, width:w, height:h};
+}
+
+function aspectScale( iWidth, iHeight, oWidth, oHeight) {
+  return iWidth*oHeight > iHeight*oWidth ? oWidth/iWidth : oHeight/iHeight;
+}
+
+function keyMap(f,keys) { for (var i=0,o={},k; k=keys[i]; i++) o[k]=f(k); return o; }
+function comparePoints(points,f) {
+  for (var i=0,o={},p; (p = points[i]) != null; i++) if (typeof p=='object') {
+    o.X = f(o.X, p.X);
+    o.Y = f(o.Y, p.Y);
+    o.Z = f(o.Z, p.Z);
+  }
+  return o;
+}
+function undefMax(a,b) { return a == null ? b : (b == null ? a : Math.max(a,b)); }
+function undefMin(a,b) { return a == null ? b : (b == null ? a : Math.min(a,b)); }
+function lerp(a,b,x) { return a + x*(b-a); }
+
+function renderSide(ctx, points, scale, centers, theta) {
+  ctx.beginPath();
+  ctx.lineWidth = .15;
+  ctx.strokeStyle = 'rgba(0,200,255,.8)';
+  xComponent = Math.cos(theta) * scale;
+  yComponent = -Math.sin(theta) * scale;
+
+  for (var i=0,point; (point = points[i]) != null; i++) if (typeof point=='object') {
+    if (point.X != undefined && point.Y != undefined)
+      ctx[point.G?'lineTo':'moveTo'](
+        (point.X-centers.X)*xComponent + (point.Y-centers.Y)*yComponent,
+        -(point.Z-centers.Z)*scale );
+  }
+  ctx.stroke();
+}
+
+function renderTop(ctx, points, scale, centers) {
+  ctx.beginPath();
+  ctx.lineWidth = .25;
+  ctx.strokeStyle = 'rgba(0,200,255,.4)';
+
+  for (var i=0,o={},point; (point = points[i]) != null; i++) if (typeof point=='object') {
+    if (point.X != undefined && point.Y != undefined)
+      ctx[point.G?'lineTo':'moveTo'](
+        (point.X-centers.X)*scale,
+        -(point.Y-centers.Y)*scale );
+  }
+  ctx.stroke();
+}
+
+function initEditor(renderer) {
+  document.getElementById('editor').setAttribute('style', 'display:block;')
+  var editor = ace.edit("editor");
+  editor.setTheme("ace/theme/solarized_dark");
+  editor.getSession().setMode("ace/mode/javascript");
+  editor.setShowPrintMargin(false);
+  editor.getSession().setUseSoftTabs(true);
+  editor.setFontSize(14);
+  editor.commands.addCommand({
+       name: 'transform',
+       bindKey: {win: 'Cmd-Enter',  mac: 'Cmd-Enter'},
+       exec: transform(renderer, editor)
+   });
+  editor.renderer.setPadding(15);
+  editor.renderer.setScrollMargin(15);
+  editor.clearSelection();
+  editor.session.setOption("useWorker", false);
+}
+
+function transform(renderer, editor) {
+  return function() {
+    var context = {};
+    try {
+      var transformer = new Function('X','Y','Z','E','F','G','context',
+        editor.getValue() +
+        '; return {X:X, Y:Y, Z:Z, E:E, F:F, G:G};');
+      var points = renderer.points();
+      for (var i=0,transformed=[],p; (p = points[i]) != null; i++) {
+        if (typeof p=='object') {
+          var newPoint = transformer(p.X,p.Y,p.Z,p.E,p.F,p.G,context);
+          newPoint.keys = p.keys;
+          transformed.push(newPoint);
+        } else {
+          transformed.push(p);
+        }
+      }
+
+      renderer.render(transformed);
+    } catch (e) {
+      // TODO: show error on screen
+      console.error( e.stack );
+      return;
+    }
+  }
+}
+
+function handler(f) {
+  return function(e) {
+    e.preventDefault();
+    f(e);
+  }
+}
+
+function compose(f1, f2, etc) {
+  if (arguments.length < 2) return f1;
+  var composed = compose.apply(null, Array.prototype.slice.call(arguments,0,arguments.length-1));
+  var last = arguments[arguments.length-1];
+  return function(x) { return composed(last(x)); }
+}
+
+
+</script>
+</html>
