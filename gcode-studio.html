@@ -22,8 +22,8 @@
     }
     #editor .ace_scroller {
       box-shadow: inset 0 0 5px rgba(0,0,0,.5);
-      -webkit-filter: opacity(.7) sepia(100%) hue-rotate(150deg) grayscale(20%);
-      -moz-filter: opacity(.7) sepia(100%) hue-rotate(150deg) grayscale(20%);
+      -webkit-filter: opacity(.8) sepia(100%) hue-rotate(150deg) grayscale(20%);
+      -moz-filter: opacity(.8) sepia(100%) hue-rotate(150deg) grayscale(20%);
     }
     #editor .ace_indent-guide {
       opacity:0;
@@ -113,8 +113,6 @@
 <script>
 
 /* TODO:
-- Generate gcode download link
-- HTML5 G-Code Upload into page
 - Dimensions on drawings
 - Select Top filter from front
 - Workers for side rendering
@@ -166,9 +164,9 @@ function Renderer(points) {
   var rotateInterval;
   var filename = '';
   var transformed;
-  renderPoints(points);
+  update(points);
 
-  function renderPoints(points) {
+  function update(points) {
     transformed = points;
     var mins = comparePoints(points.slice(10,points.length-10),undefMin);
     var maxes = comparePoints(points.slice(10,points.length-10),undefMax);
@@ -201,7 +199,7 @@ function Renderer(points) {
 
   function load(newPoints) {
     points = newPoints;
-    renderPoints(points);
+    update(points);
   }
 
   function save() {
@@ -219,7 +217,7 @@ function Renderer(points) {
 
   return {
     points: function() { return points; },
-    render: renderPoints,
+    update: update,
     load: load,
     save: save,
     setName: function(name) { filename = name }
@@ -235,23 +233,6 @@ function initCanvas(id, scale) {
 
   return {ctx:ctx, width:w, height:h};
 }
-
-function aspectScale( iWidth, iHeight, oWidth, oHeight) {
-  return iWidth*oHeight > iHeight*oWidth ? oWidth/iWidth : oHeight/iHeight;
-}
-
-function keyMap(f,keys) { for (var i=0,o={},k; k=keys[i]; i++) o[k]=f(k); return o; }
-function comparePoints(points,f) {
-  for (var i=0,o={},p; (p = points[i]) != null; i++) if (typeof p=='object') {
-    o.X = f(o.X, p.X);
-    o.Y = f(o.Y, p.Y);
-    o.Z = f(o.Z, p.Z);
-  }
-  return o;
-}
-function undefMax(a,b) { return a == null ? b : (b == null ? a : Math.max(a,b)); }
-function undefMin(a,b) { return a == null ? b : (b == null ? a : Math.min(a,b)); }
-function lerp(a,b,x) { return a + x*(b-a); }
 
 function renderSide(ctx, points, scale, centers, theta) {
   ctx.beginPath();
@@ -320,7 +301,7 @@ function transform(renderer, editor) {
         }
       }
 
-      renderer.render(transformed);
+      renderer.update(transformed);
     } catch (e) {
       // TODO: show error on screen
       console.error( e.stack );
@@ -329,12 +310,24 @@ function transform(renderer, editor) {
   }
 }
 
-function handler(f) {
-  return function(e) {
-    e.preventDefault();
-    f(e);
-  }
+function aspectScale( iWidth, iHeight, oWidth, oHeight) {
+  return iWidth*oHeight > iHeight*oWidth ? oWidth/iWidth : oHeight/iHeight;
 }
+
+function keyMap(f,keys) { for (var i=0,o={},k; k=keys[i]; i++) o[k]=f(k); return o; }
+function comparePoints(points,f) {
+  for (var i=0,o={},p; (p = points[i]) != null; i++) if (typeof p=='object') {
+    o.X = f(o.X, p.X);
+    o.Y = f(o.Y, p.Y);
+    o.Z = f(o.Z, p.Z);
+  }
+  return o;
+}
+function undefMax(a,b) { return a == null ? b : (b == null ? a : Math.max(a,b)); }
+function undefMin(a,b) { return a == null ? b : (b == null ? a : Math.min(a,b)); }
+function lerp(a,b,x) { return a + x*(b-a); }
+
+function handler(f) { return function(e) { e.preventDefault(); f(e); } }
 
 function compose(f1, f2, etc) {
   if (arguments.length < 2) return f1;
