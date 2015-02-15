@@ -139,12 +139,11 @@ document.querySelector('#save').addEventListener('click', handler(renderer.save)
 
 
 function parseGcode(code) {
-  var lines = code.split(/\n\r?/);
+  var start = new Date();
   var point = {};
   var points = [];
-  for (var i=0,line,m; (line = lines[i]) !== undefined; i++) {
-    m = line.match(/^G([01])\s+(.*?)(;.*)?$/);
-
+  lines(code, function(line) {
+    var m = line.match(/^G([01])\s+(.*?)(;.*)?$/m);
     if (m) {
       point = {G:parseInt(m[1]), X:point.X, Y:point.Y, Z:point.Z, E:point.E, F:point.F, keys:''};
       m[2].replace(/(\w)(-?\d+(\.\d+)?)/g, function(m,k,n) {
@@ -155,8 +154,8 @@ function parseGcode(code) {
     } else {
       points.push(line + '\n');
     }
-  }
-  start = new Date();
+  });
+  console.log('Parse:', new Date().getTime() - start.getTime() )
   return points;
 }
 
@@ -242,10 +241,11 @@ function renderSide(ctx, points, scale, centers, theta) {
   yComponent = -Math.sin(theta) * scale;
 
   for (var i=0,point; (point = points[i]) != null; i++) if (typeof point=='object') {
-    if (point.X != undefined && point.Y != undefined)
+    if (point.X != undefined && point.Y != undefined) {
       ctx[point.G?'lineTo':'moveTo'](
         (point.X-centers.X)*xComponent + (point.Y-centers.Y)*yComponent,
         -(point.Z-centers.Z)*scale );
+    }
   }
   ctx.stroke();
 }
@@ -308,6 +308,13 @@ function transform(renderer, editor) {
       return;
     }
   }
+}
+
+function lines(str, cb) {
+  var re = /\s*\n\r?\s*/g, startIndex=0, m;
+  while (m = re.exec(str))
+    cb( str.substring(startIndex, startIndex = m.index) );
+  cb(str.substring( startIndex, str.length ) );
 }
 
 function aspectScale( iWidth, iHeight, oWidth, oHeight) {
