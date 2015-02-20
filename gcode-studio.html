@@ -113,7 +113,6 @@
 <script>
 
 /* TODO:
-- Dimensions on drawings
 - Select Top filter from front
 - Workers for side rendering
 - On screen error messaging
@@ -172,23 +171,23 @@ function Renderer(points) {
     var XMARGIN = 60;
     var YMARGIN = 100;
 
-    var top = initCanvas('top',2);
+    var top = initCanvas('top',2, -XMARGIN);
     var xRange = maxes.X - mins.X;
     var yRange = maxes.Y - mins.Y;
 
     var theta = 0;
-    var SCALE = aspectScale( xRange, yRange, top.width - 2*XMARGIN, top.height - 2*YMARGIN );
+    var SCALE = aspectScale( xRange, yRange, top.width - XMARGIN, top.height - 2*YMARGIN );
 
     renderTop(top.ctx, points, SCALE, centers, mins, maxes);
 
-    var side = initCanvas('side');
+    var side = initCanvas('side',1,XMARGIN);
     var zRange = maxes.Z - mins.Z;
     var xyRange = Math.max(xRange, yRange);
-    var SCALE = aspectScale( xyRange, zRange, side.width - 2*XMARGIN, side.height - 2*YMARGIN );
+    var SCALE = aspectScale( xyRange, zRange, side.width - XMARGIN, side.height - 2*YMARGIN );
 
     clearInterval(rotateInterval);
     rotateInterval = setInterval(function() {
-      side.ctx.clearRect(-side.width/2,-side.height/2,side.width,side.height);
+      side.ctx.clearRect(-side.width/2 - XMARGIN,-side.height/2,side.width,side.height);
       renderSide(side.ctx, points, SCALE, centers, mins, maxes, theta);
       theta += Math.PI/60;
     }, 200);
@@ -221,12 +220,12 @@ function Renderer(points) {
   }
 }
 
-function initCanvas(id, scale) {
+function initCanvas(id, scale, xOffset) {
   var canvas = document.getElementById(id);
   var w = canvas.width = canvas.offsetWidth * (scale||1);
   var h = canvas.height = canvas.offsetHeight * (scale||1);
   var ctx = canvas.getContext('2d');
-  ctx.translate( w/2, h/2);
+  ctx.translate( w/2 + xOffset, h/2);
 
   return {ctx:ctx, width:w, height:h};
 }
@@ -247,7 +246,7 @@ function renderSide(ctx, points, scale, centers, mins, maxes, theta) {
   }
   ctx.stroke();
 
-  renderHeightMetric( ctx, 20 - ctx.canvas.width/2, maxes.Z, mins.Z, scale, 1 );
+  renderHeightMetric( ctx, -ctx.canvas.width/2 - 40, maxes.Z, mins.Z, scale, 1 );
 }
 
 function renderTop(ctx, points, scale, centers, mins, maxes) {
